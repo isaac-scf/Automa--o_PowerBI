@@ -1,0 +1,7 @@
+entrada/
+saida_erros/
+venv/
+__pycache__/
+*.pyc
+.vscode/
+.env

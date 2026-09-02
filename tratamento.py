@@ -274,7 +274,6 @@ def main():
         )
 
         print(f"Erro registrado em: {caminho_log}")
-        print("Programa encerrado com segurança.")
         return
 
     print(
