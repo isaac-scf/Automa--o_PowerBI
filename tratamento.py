@@ -1,11 +1,13 @@
 import os
 import glob
+import shutil
 from datetime import datetime
 import pandas as pd
 
 PASTA_ENTRADA = "entrada"
 PASTA_SAIDA = "dados tratados"
 PASTA_ERROS = "saida_erros"
+PASTA_PROCESSADOS = "processados"
 
 EXTENSOES_VALIDAS = ("*.xlsx", "*.xls")
 EXTENSOES_VALIDAS_SUFIXO = (".xlsx", ".xls")
@@ -80,6 +82,31 @@ def validar_dados(df: pd.DataFrame) -> bool:
         return False
 
     return True
+
+
+def mover_para_processados(caminho_original: str, sucesso: bool) -> str:
+    """
+    Move o arquivo original (que já passou pelo código, com sucesso
+    ou não) da pasta "entrada" para "processados". Isso garante que
+    ele nunca mais seja encontrado/selecionado numa próxima execução.
+
+    Se "sucesso" for False, o arquivo é renomeado com o prefixo
+    "ERRO_" para ficar visualmente identificável dentro da mesma
+    pasta "processados" — o motivo detalhado do erro continua
+    registrado à parte, em "saida_erros".
+    """
+    os.makedirs(PASTA_PROCESSADOS, exist_ok=True)
+
+    nome_arquivo = os.path.basename(caminho_original)
+
+    if not sucesso:
+        nome_arquivo = f"ERRO_{nome_arquivo}"
+
+    caminho_destino = os.path.join(PASTA_PROCESSADOS, nome_arquivo)
+
+    shutil.move(caminho_original, caminho_destino)
+
+    return caminho_destino
 
 
 # ==============================
@@ -167,6 +194,13 @@ def main():
 
             print(f"Erro registrado em: {caminho_log}")
 
+            caminho_movido = mover_para_processados(
+                arquivo_invalido,
+                sucesso=False
+            )
+
+            print(f"Arquivo movido para: {caminho_movido}")
+
         print("Programa encerrado com segurança.")
         return
 
@@ -211,6 +245,7 @@ def main():
         print(f"Validação falhou: {motivo}")
         caminho_log = registrar_erro(motivo, caminho_selecionado)
         print(f"Erro registrado em: {caminho_log}")
+        # Não há arquivo pra mover: ele já não existe no disco.
         print("Programa encerrado com segurança.")
         return
 
@@ -231,6 +266,13 @@ def main():
         )
 
         print(f"Erro registrado em: {caminho_log}")
+
+        caminho_movido = mover_para_processados(
+            caminho_selecionado,
+            sucesso=False
+        )
+
+        print(f"Arquivo movido para: {caminho_movido}")
         print("Programa encerrado com segurança.")
         return
 
@@ -252,6 +294,13 @@ def main():
         )
 
         print(f"Erro registrado em: {caminho_log}")
+
+        caminho_movido = mover_para_processados(
+            caminho_selecionado,
+            sucesso=False
+        )
+
+        print(f"Arquivo movido para: {caminho_movido}")
         print("Programa encerrado com segurança.")
         return
 
@@ -274,6 +323,14 @@ def main():
         )
 
         print(f"Erro registrado em: {caminho_log}")
+
+        caminho_movido = mover_para_processados(
+            caminho_selecionado,
+            sucesso=False
+        )
+
+        print(f"Arquivo movido para: {caminho_movido}")
+        print("Programa encerrado com segurança.")
         return
 
     print(
@@ -289,6 +346,14 @@ def main():
         df,
         caminho_selecionado
     )
+
+    # Move o arquivo original para "processados", já com sucesso
+    caminho_movido = mover_para_processados(
+        caminho_selecionado,
+        sucesso=True
+    )
+
+    print(f"Arquivo original movido para: {caminho_movido}")
 
 
 if __name__ == "__main__":

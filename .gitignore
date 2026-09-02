@@ -1,4 +1,5 @@
 entrada/
+processados/
 saida_erros/
 venv/
 __pycache__/
