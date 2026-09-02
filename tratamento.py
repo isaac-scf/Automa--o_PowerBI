@@ -34,6 +34,20 @@ def selecionar_arquivo_mais_recente(lista_arquivos: list) -> str:
     return arquivo_mais_recente
 
 
+def encontrar_arquivos_invalidos(pasta: str) -> list:
+    arquivos_invalidos = []
+
+    for arquivo in glob.glob(os.path.join(pasta, "*")):
+
+        if os.path.isfile(arquivo):
+            _, extensao = os.path.splitext(arquivo)
+
+            if extensao.lower() not in EXTENSOES_VALIDAS_SUFIXO:
+                arquivos_invalidos.append(arquivo)
+
+    return arquivos_invalidos
+
+
 # ==============================
 # ETAPA DE VALIDAÇÃO
 # ==============================
@@ -46,7 +60,9 @@ def registrar_erro(motivo: str, caminho_arquivo: str) -> str:
     caminho_log = os.path.join(PASTA_ERROS, f"erro_{carimbo}.txt")
 
     with open(caminho_log, "w", encoding="utf-8") as arquivo_log:
-        arquivo_log.write(f"Data/Hora: {agora.strftime('%d/%m/%Y %H:%M:%S')}\n")
+        arquivo_log.write(
+            f"Data/Hora: {agora.strftime('%d/%m/%Y %H:%M:%S')}\n"
+        )
         arquivo_log.write(f"Arquivo: {caminho_arquivo}\n")
         arquivo_log.write(f"Motivo: {motivo}\n")
 
@@ -130,6 +146,30 @@ def main():
 
     print("=== ETAPA DE ENTRADA - Automação Cactus Elétrica ===\n")
 
+    # Procura arquivos inválidos na pasta
+    arquivos_invalidos = encontrar_arquivos_invalidos(PASTA_ENTRADA)
+
+    if arquivos_invalidos:
+        for arquivo_invalido in arquivos_invalidos:
+
+            motivo = (
+                "Formato de arquivo não suportado. "
+                "Apenas arquivos Excel (.xlsx ou .xls) são aceitos."
+            )
+
+            print(f"Validação falhou: {motivo}")
+            print(f"Arquivo: {arquivo_invalido}")
+
+            caminho_log = registrar_erro(
+                motivo,
+                arquivo_invalido
+            )
+
+            print(f"Erro registrado em: {caminho_log}")
+
+        print("Programa encerrado com segurança.")
+        return
+
     # Procura os arquivos Excel
     arquivos = encontrar_arquivos_excel(PASTA_ENTRADA)
 
@@ -176,10 +216,20 @@ def main():
 
     # Valida se a extensão é um Excel aceito
     _, extensao_arquivo = os.path.splitext(caminho_selecionado)
+
     if extensao_arquivo.lower() not in EXTENSOES_VALIDAS_SUFIXO:
-        motivo = f"Extensão '{extensao_arquivo}' não é um Excel válido (.xlsx ou .xls)."
+        motivo = (
+            f"Extensão '{extensao_arquivo}' "
+            "não é um Excel válido (.xlsx ou .xls)."
+        )
+
         print(f"Validação falhou: {motivo}")
-        caminho_log = registrar_erro(motivo, caminho_selecionado)
+
+        caminho_log = registrar_erro(
+            motivo,
+            caminho_selecionado
+        )
+
         print(f"Erro registrado em: {caminho_log}")
         print("Programa encerrado com segurança.")
         return
@@ -187,10 +237,20 @@ def main():
     # Valida se o Pandas consegue abrir o arquivo
     try:
         df = pd.read_excel(caminho_selecionado)
+
     except Exception as erro:
-        motivo = f"O Pandas não conseguiu abrir o arquivo. Detalhe: {erro}"
+        motivo = (
+            f"O Pandas não conseguiu abrir o arquivo. "
+            f"Detalhe: {erro}"
+        )
+
         print(f"Validação falhou: {motivo}")
-        caminho_log = registrar_erro(motivo, caminho_selecionado)
+
+        caminho_log = registrar_erro(
+            motivo,
+            caminho_selecionado
+        )
+
         print(f"Erro registrado em: {caminho_log}")
         print("Programa encerrado com segurança.")
         return
@@ -201,14 +261,26 @@ def main():
 
     # Valida se o DataFrame não está vazio e tem linhas/colunas
     if not validar_dados(df):
-        motivo = "O DataFrame está vazio ou não possui linhas/colunas suficientes."
+        motivo = (
+            "O DataFrame está vazio ou não possui "
+            "linhas/colunas suficientes."
+        )
+
         print(f"Validação falhou: {motivo}")
-        caminho_log = registrar_erro(motivo, caminho_selecionado)
+
+        caminho_log = registrar_erro(
+            motivo,
+            caminho_selecionado
+        )
+
         print(f"Erro registrado em: {caminho_log}")
         print("Programa encerrado com segurança.")
         return
 
-    print("Validação concluída: dados válidos, seguindo para o tratamento.\n")
+    print(
+        "Validação concluída: dados válidos, "
+        "seguindo para o tratamento.\n"
+    )
 
     # Trata os dados
     df = tratar_dados(df)
@@ -218,6 +290,7 @@ def main():
         df,
         caminho_selecionado
     )
+
 
 if __name__ == "__main__":
     main()
