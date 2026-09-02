@@ -305,7 +305,7 @@ def main():
         return
 
     print("=== Resumo do arquivo carregado ===")
-    print(f"Linhas: {df.shape[0]}")
+    print(f"Linhas: {df.shape[0]}") 
     print(f"Colunas: {df.shape[1]}\n")
 
     # Valida se o DataFrame não está vazio e tem linhas/colunas
