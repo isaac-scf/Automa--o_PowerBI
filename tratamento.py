@@ -1,360 +1,448 @@
-import os
-import glob
-import shutil
-from datetime import datetime
 import pandas as pd
 
-PASTA_ENTRADA = "entrada"
-PASTA_SAIDA = "dados tratados"
-PASTA_ERROS = "saida_erros"
-PASTA_PROCESSADOS = "processados"
 
-EXTENSOES_VALIDAS = ("*.xlsx", "*.xls")
-EXTENSOES_VALIDAS_SUFIXO = (".xlsx", ".xls")
+# ==============================
+# IDENTIFICAÇÃO DO RELATÓRIO
+# ==============================
+
+def identificar_relatorio(df: pd.DataFrame) -> str:
+    """
+    Identifica o tipo de relatório através da primeira linha
+    da planilha.
+
+    A identificação acontece antes de qualquer tratamento.
+    O nome do arquivo não é utilizado, pois pode ser genérico,
+    como 'pivot.xlsx'.
+    """
+
+    if df is None or df.empty:
+        return "desconhecido"
+
+    # Linha 1 da planilha = índice 0 no Pandas
+    primeira_linha = df.iloc[0].fillna("").astype(str)
+
+    texto_identificacao = " ".join(
+        valor.strip()
+        for valor in primeira_linha
+        if valor.strip()
+    ).lower()
+
+    # ------------------------------
+    # FATURAMENTO POR PERÍODO
+    # ------------------------------
+
+    if "faturamento por período" in texto_identificacao:
+        return "faturamento_periodo"
+
+    return "desconhecido"
 
 
 # ==============================
-# ETAPA DE ENTRADA
+# TRATAMENTO GERAL
 # ==============================
 
-def encontrar_arquivos_excel(pasta: str) -> list:
-    arquivos_encontrados = []
+def limpeza_geral(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Regras gerais aplicadas a todos os relatórios.
 
-    for extensao in EXTENSOES_VALIDAS:
-        caminho_busca = os.path.join(pasta, extensao)
-        arquivos_encontrados.extend(glob.glob(caminho_busca))
+    Regras:
+    - remover colunas completamente vazias;
+    - remover linhas completamente vazias;
+    - remover espaços desnecessários dos textos;
+    - padronizar cabeçalhos;
+    - padronizar células vazias;
+    - remover linhas de totalização claramente identificadas.
 
-    return arquivos_encontrados
+    Uma coluna só é removida quando estiver completamente vazia.
+    """
 
+    if df is None:
+        return df
 
-def selecionar_arquivo_mais_recente(lista_arquivos: list) -> str:
-    arquivo_mais_recente = max(
-        lista_arquivos,
-        key=os.path.getmtime
+    df = df.copy()
+
+    # ------------------------------
+    # 1. Remover espaços desnecessários
+    # ------------------------------
+
+    for coluna in df.columns:
+
+        if df[coluna].dtype == "object":
+
+            df[coluna] = df[coluna].apply(
+                lambda valor: valor.strip()
+                if isinstance(valor, str)
+                else valor
+            )
+
+    # ------------------------------
+    # 2. Transformar células vazias
+    #    em valores nulos
+    # ------------------------------
+
+    df = df.replace(
+        r"^\s*$",
+        pd.NA,
+        regex=True
     )
 
-    return arquivo_mais_recente
+    # ------------------------------
+    # 3. Remover linhas completamente vazias
+    # ------------------------------
 
+    df = df.dropna(
+        axis=0,
+        how="all"
+    )
 
-def encontrar_arquivos_invalidos(pasta: str) -> list:
-    arquivos_invalidos = []
+    # ------------------------------
+    # 4. Remover colunas completamente vazias
+    # ------------------------------
 
-    for arquivo in glob.glob(os.path.join(pasta, "*")):
+    df = df.dropna(
+        axis=1,
+        how="all"
+    )
 
-        if os.path.isfile(arquivo):
-            _, extensao = os.path.splitext(arquivo)
+    # ------------------------------
+    # 5. Padronizar cabeçalhos
+    # ------------------------------
 
-            if extensao.lower() not in EXTENSOES_VALIDAS_SUFIXO:
-                arquivos_invalidos.append(arquivo)
+    novos_cabecalhos = []
 
-    return arquivos_invalidos
+    for coluna in df.columns:
 
+        cabecalho = str(coluna).strip()
 
-# ==============================
-# ETAPA DE VALIDAÇÃO
-# ==============================
-
-def registrar_erro(motivo: str, caminho_arquivo: str) -> str:
-    os.makedirs(PASTA_ERROS, exist_ok=True)
-
-    agora = datetime.now()
-    carimbo = agora.strftime("%Y-%m-%d_%H%M%S")
-    caminho_log = os.path.join(PASTA_ERROS, f"erro_{carimbo}.txt")
-
-    with open(caminho_log, "w", encoding="utf-8") as arquivo_log:
-        arquivo_log.write(
-            f"Data/Hora: {agora.strftime('%d/%m/%Y %H:%M:%S')}\n"
+        # Remove espaços duplicados
+        cabecalho = " ".join(
+            cabecalho.split()
         )
-        arquivo_log.write(f"Arquivo: {caminho_arquivo}\n")
-        arquivo_log.write(f"Motivo: {motivo}\n")
 
-    return caminho_log
+        novos_cabecalhos.append(cabecalho)
 
+    df.columns = novos_cabecalhos
 
-def validar_dados(df: pd.DataFrame) -> bool:
-    if df is None:
-        return False
+    # ------------------------------
+    # 6. Remover linhas de totalização
+    # ------------------------------
 
-    if df.empty:
-        return False
+    indices_para_remover = []
 
-    if df.shape[0] == 0 or df.shape[1] == 0:
-        return False
+    for indice, linha in df.iterrows():
 
-    return True
+        valores = (
+            linha
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
 
+        texto_linha = " ".join(
+            valor
+            for valor in valores
+            if valor
+        )
 
-def mover_para_processados(caminho_original: str, sucesso: bool) -> str:
-    """
-    Move o arquivo original (que já passou pelo código, com sucesso
-    ou não) da pasta "entrada" para "processados". Isso garante que
-    ele nunca mais seja encontrado/selecionado numa próxima execução.
+        if (
+            texto_linha.startswith("total geral")
+            or texto_linha.startswith("subtotal")
+            or texto_linha.startswith("total")
+        ):
+            indices_para_remover.append(indice)
 
-    Se "sucesso" for False, o arquivo é renomeado com o prefixo
-    "ERRO_" para ficar visualmente identificável dentro da mesma
-    pasta "processados" — o motivo detalhado do erro continua
-    registrado à parte, em "saida_erros".
-    """
-    os.makedirs(PASTA_PROCESSADOS, exist_ok=True)
+    if indices_para_remover:
 
-    nome_arquivo = os.path.basename(caminho_original)
+        df = df.drop(
+            index=indices_para_remover
+        )
 
-    if not sucesso:
-        nome_arquivo = f"ERRO_{nome_arquivo}"
+    # ------------------------------
+    # 7. Reorganizar índice
+    # ------------------------------
 
-    caminho_destino = os.path.join(PASTA_PROCESSADOS, nome_arquivo)
-
-    shutil.move(caminho_original, caminho_destino)
-
-    return caminho_destino
-
-
-# ==============================
-# ETAPA DE TRATAMENTO
-# ==============================
-
-def tratar_dados(df: pd.DataFrame) -> pd.DataFrame:
-
-    print("=== ETAPA DE TRATAMENTO DOS DADOS ===")
-
-    # REGRA DE TESTE
-    # Manter somente as 10 últimas linhas
-    df = df.tail(10)
-
-    print(f"Linhas após o tratamento: {df.shape[0]}")
-    print(f"Colunas após o tratamento: {df.shape[1]}\n")
-
-    # ==========================================
-    # ESPAÇO PARA FUTURAS REGRAS DE TRATAMENTO
-    # ==========================================
+    df = df.reset_index(
+        drop=True
+    )
 
     return df
 
 
 # ==============================
-# ETAPA DE SAÍDA
+# TRATAMENTO ESPECÍFICO
+# FATURAMENTO POR PERÍODO
 # ==============================
 
-def salvar_dados_tratados(
-    df: pd.DataFrame,
-    caminho_original: str
-) -> str:
+def tratar_faturamento_periodo(
+    df: pd.DataFrame
+) -> pd.DataFrame:
 
-    os.makedirs(PASTA_SAIDA, exist_ok=True)
+    """
+    Tratamento específico do relatório
+    'Faturamento por Período'.
 
-    nome_original = os.path.basename(caminho_original)
+    Estrutura original:
 
-    nome_base, _ = os.path.splitext(nome_original)
+        Linha 1       → identificação
+        Linhas 2-5    → informações do relatório
+        Linha 6       → cabeçalho verdadeiro
+        Linhas seguintes → dados
+        Última linha   → Total Geral
 
-    nome_saida = f"{nome_base}_tratado.xlsx"
+    Resultado:
 
-    caminho_saida = os.path.join(
-        PASTA_SAIDA,
-        nome_saida
-    )
+        Linha 6 passa a ser o cabeçalho.
+        Linhas 1-5 são removidas.
+        Dados permanecem.
+        Última linha (Total Geral) é removida.
+    """
 
-    df.to_excel(caminho_saida, index=False)
+    if df is None or df.empty:
+        return df
 
-    print("=== SAÍDA DOS DADOS ===")
-    print(f"Arquivo criado: {nome_saida}")
-    print(f"Local: {caminho_saida}")
-    print(f"Linhas finais: {df.shape[0]}")
-    print(f"Colunas finais: {df.shape[1]}")
-    print("Automação concluída com sucesso!")
+    df = df.copy()
 
-    return caminho_saida
+    # ------------------------------
+    # Verificar se existe linha 6
+    # ------------------------------
 
-
-# ==============================
-# PROGRAMA PRINCIPAL
-# ==============================
-
-def main():
-
-    print("=== ETAPA DE ENTRADA - Automação Cactus Elétrica ===\n")
-
-    # Procura arquivos inválidos na pasta
-    arquivos_invalidos = encontrar_arquivos_invalidos(PASTA_ENTRADA)
-
-    if arquivos_invalidos:
-        for arquivo_invalido in arquivos_invalidos:
-
-            motivo = (
-                "Formato de arquivo não suportado. "
-                "Apenas arquivos Excel (.xlsx ou .xls) são aceitos."
-            )
-
-            print(f"Validação falhou: {motivo}")
-            print(f"Arquivo: {arquivo_invalido}")
-
-            caminho_log = registrar_erro(
-                motivo,
-                arquivo_invalido
-            )
-
-            print(f"Erro registrado em: {caminho_log}")
-
-            caminho_movido = mover_para_processados(
-                arquivo_invalido,
-                sucesso=False
-            )
-
-            print(f"Arquivo movido para: {caminho_movido}")
-
-        print("Programa encerrado com segurança.")
-        return
-
-    # Procura os arquivos Excel
-    arquivos = encontrar_arquivos_excel(PASTA_ENTRADA)
-
-    # Verifica se encontrou algum arquivo
-    if not arquivos:
-        print(
-            f"Nenhum arquivo Excel foi encontrado "
-            f"na pasta '{PASTA_ENTRADA}'."
-        )
+    if len(df) < 6:
 
         print(
-            "Coloque um arquivo .xlsx ou .xls "
-            "nessa pasta e rode o script novamente."
+            "Aviso: o relatório possui menos de "
+            "6 linhas. Tratamento específico "
+            "não foi aplicado."
         )
 
-        return
+        return df
 
-    # Seleciona o arquivo mais recente
-    caminho_selecionado = selecionar_arquivo_mais_recente(arquivos)
+    # ------------------------------
+    # LINHA 6 → CABEÇALHO
+    # ------------------------------
 
-    nome_arquivo = os.path.basename(caminho_selecionado)
+    # Pandas começa o índice em 0.
+    #
+    # Linha 1 → índice 0
+    # Linha 2 → índice 1
+    # Linha 3 → índice 2
+    # Linha 4 → índice 3
+    # Linha 5 → índice 4
+    # Linha 6 → índice 5
 
-    print(f"Arquivos Excel encontrados: {len(arquivos)}")
-    print(
-        f"Arquivo selecionado (mais recente): "
-        f"{nome_arquivo}"
+    novo_cabecalho = (
+        df.iloc[5]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .tolist()
     )
 
-    print(
-        f"Caminho completo: "
-        f"{caminho_selecionado}\n"
+    # ------------------------------
+    # REMOVER LINHAS 1 ATÉ 6
+    # ------------------------------
+
+    # Os dados começam depois da linha 6.
+    df = df.iloc[6:].copy()
+
+    # ------------------------------
+    # DEFINIR NOVO CABEÇALHO
+    # ------------------------------
+
+    df.columns = novo_cabecalho
+
+    # ------------------------------
+    # REMOVER ÚLTIMA LINHA
+    # ------------------------------
+
+    # A última linha do relatório
+    # corresponde ao Total Geral.
+
+    if not df.empty:
+
+        df = df.iloc[:-1].copy()
+
+    # ------------------------------
+    # RESETAR ÍNDICE
+    # ------------------------------
+
+    df = df.reset_index(
+        drop=True
     )
 
-    print("=== ETAPA DE VALIDAÇÃO ===")
+    return df
 
-    # Valida se o arquivo ainda existe no disco
-    if not os.path.isfile(caminho_selecionado):
-        motivo = "O arquivo selecionado não existe mais no disco."
-        print(f"Validação falhou: {motivo}")
-        caminho_log = registrar_erro(motivo, caminho_selecionado)
-        print(f"Erro registrado em: {caminho_log}")
-        # Não há arquivo pra mover: ele já não existe no disco.
-        print("Programa encerrado com segurança.")
-        return
 
-    # Valida se a extensão é um Excel aceito
-    _, extensao_arquivo = os.path.splitext(caminho_selecionado)
+# ==============================
+# TRATAMENTO DESCONHECIDO
+# ==============================
 
-    if extensao_arquivo.lower() not in EXTENSOES_VALIDAS_SUFIXO:
-        motivo = (
-            f"Extensão '{extensao_arquivo}' "
-            "não é um Excel válido (.xlsx ou .xls)."
-        )
+def tratar_desconhecido(
+    df: pd.DataFrame
+) -> pd.DataFrame:
 
-        print(f"Validação falhou: {motivo}")
-
-        caminho_log = registrar_erro(
-            motivo,
-            caminho_selecionado
-        )
-
-        print(f"Erro registrado em: {caminho_log}")
-
-        caminho_movido = mover_para_processados(
-            caminho_selecionado,
-            sucesso=False
-        )
-
-        print(f"Arquivo movido para: {caminho_movido}")
-        print("Programa encerrado com segurança.")
-        return
-
-    # Valida se o Pandas consegue abrir o arquivo
-    try:
-        df = pd.read_excel(caminho_selecionado)
-
-    except Exception as erro:
-        motivo = (
-            f"O Pandas não conseguiu abrir o arquivo. "
-            f"Detalhe: {erro}"
-        )
-
-        print(f"Validação falhou: {motivo}")
-
-        caminho_log = registrar_erro(
-            motivo,
-            caminho_selecionado
-        )
-
-        print(f"Erro registrado em: {caminho_log}")
-
-        caminho_movido = mover_para_processados(
-            caminho_selecionado,
-            sucesso=False
-        )
-
-        print(f"Arquivo movido para: {caminho_movido}")
-        print("Programa encerrado com segurança.")
-        return
-
-    print("=== Resumo do arquivo carregado ===")
-    print(f"Linhas: {df.shape[0]}") 
-    print(f"Colunas: {df.shape[1]}\n")
-
-    # Valida se o DataFrame não está vazio e tem linhas/colunas
-    if not validar_dados(df):
-        motivo = (
-            "O DataFrame está vazio ou não possui "
-            "linhas/colunas suficientes."
-        )
-
-        print(f"Validação falhou: {motivo}")
-
-        caminho_log = registrar_erro(
-            motivo,
-            caminho_selecionado
-        )
-
-        print(f"Erro registrado em: {caminho_log}")
-
-        caminho_movido = mover_para_processados(
-            caminho_selecionado,
-            sucesso=False
-        )
-
-        print(f"Arquivo movido para: {caminho_movido}")
-        print("Programa encerrado com segurança.")
-        return
+    """
+    Caso o relatório não seja identificado,
+    nenhum tratamento específico é aplicado.
+    """
 
     print(
-        "Validação concluída: dados válidos, "
-        "seguindo para o tratamento.\n"
+        "Aviso: tipo de relatório não identificado."
     )
 
-    # Trata os dados
-    df = tratar_dados(df)
+    return df
 
-    # Salva o resultado
-    salvar_dados_tratados(
-        df,
-        caminho_selecionado
+
+# ==============================
+# MAPA DE TRATAMENTOS
+# ==============================
+
+TRATAMENTOS_ESPECIFICOS = {
+
+    "faturamento_periodo":
+        tratar_faturamento_periodo,
+
+    "desconhecido":
+        tratar_desconhecido,
+}
+
+
+# ==============================
+# MAPA DE DESTINOS
+# ==============================
+
+DESTINOS_POR_TIPO = {
+
+    "faturamento_periodo":
+        "dados tratados/Faturamento por Período",
+
+    "desconhecido":
+        "dados tratados",
+}
+
+
+# ==============================
+# NOMES DOS RELATÓRIOS
+# ==============================
+
+NOMES_POR_TIPO = {
+
+    "faturamento_periodo":
+        "Faturamento por Período",
+
+    "desconhecido":
+        "Desconhecido",
+}
+
+
+# ==============================
+# PONTO DE ENTRADA
+# CHAMADO PELO fluxo.py
+# ==============================
+
+def processar_relatorio(
+    df: pd.DataFrame
+) -> tuple:
+
+    """
+    Processa o relatório depois que ele passou
+    por TODAS as validações do fluxo.py.
+
+    ORDEM:
+
+        1. Identificação pela linha 1
+        2. Definição do tipo
+        3. Tratamento específico estrutural
+        4. Tratamento geral
+        5. Tratamento específico final
+        6. Retorno do resultado
+    """
+
+    print(
+        "=== ETAPA DE TRATAMENTO DOS DADOS ==="
     )
 
-    # Move o arquivo original para "processados", já com sucesso
-    caminho_movido = mover_para_processados(
-        caminho_selecionado,
-        sucesso=True
+    # ==============================
+    # 1. IDENTIFICAÇÃO
+    # ==============================
+
+    tipo_relatorio = identificar_relatorio(df)
+
+    nome_relatorio = NOMES_POR_TIPO.get(
+        tipo_relatorio,
+        "Desconhecido"
     )
 
-    print(f"Arquivo original movido para: {caminho_movido}")
+    print(
+        f"Tipo identificado: {tipo_relatorio}"
+    )
 
+    print(
+        f"Nome do relatório: {nome_relatorio}"
+    )
 
-if __name__ == "__main__":
-    main()
+    # ==============================
+    # 2. TRATAMENTO ESPECÍFICO
+    #    DA ESTRUTURA
+    # ==============================
+
+    if tipo_relatorio == "faturamento_periodo":
+
+        print(
+            "Aplicando estrutura do "
+            "Faturamento por Período..."
+        )
+
+        df = tratar_faturamento_periodo(df)
+
+    # ==============================
+    # 3. TRATAMENTO GERAL
+    # ==============================
+
+    print(
+        "Aplicando regras gerais..."
+    )
+
+    df = limpeza_geral(df)
+
+    # ==============================
+    # 4. TRATAMENTO ESPECÍFICO FINAL
+    # ==============================
+
+    # Aqui ficam regras específicas adicionais
+    # que futuramente poderão ser aplicadas
+    # depois da limpeza geral.
+
+    if tipo_relatorio != "faturamento_periodo":
+
+        funcao_tratamento = (
+            TRATAMENTOS_ESPECIFICOS.get(
+                tipo_relatorio,
+                tratar_desconhecido
+            )
+        )
+
+        df = funcao_tratamento(df)
+
+    # ==============================
+    # RESULTADO
+    # ==============================
+
+    print(
+        f"Linhas após tratamento: "
+        f"{df.shape[0]}"
+    )
+
+    print(
+        f"Colunas após tratamento: "
+        f"{df.shape[1]}"
+    )
+
+    print(
+        f"Destino definido: "
+        f"{DESTINOS_POR_TIPO.get(tipo_relatorio, 'dados tratados')}"
+    )
+
+    print()
+
+    return df, tipo_relatorio
