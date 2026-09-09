@@ -4,7 +4,9 @@ import shutil
 from datetime import datetime
 
 import pandas as pd
+
 import tratamento
+import curva_abc
 
 
 PASTA_ENTRADA = "entrada"
@@ -12,67 +14,67 @@ PASTA_SAIDA = "dados tratados"
 PASTA_ERROS = "saida_erros"
 PASTA_PROCESSADOS = "processados"
 
-EXTENSOES_VALIDAS = (".xlsx", ".xls")
+EXTENSOES_VALIDAS = ("*.xlsx", "*.xls")
+EXTENSOES_VALIDAS_SUFIXO = (".xlsx", ".xls")
 
 
 # ==============================
-# ENTRADA
+# ETAPA DE ENTRADA
 # ==============================
 
-def encontrar_arquivos_excel(pasta):
+def encontrar_arquivos_excel(pasta: str) -> list:
     arquivos = []
 
     for extensao in EXTENSOES_VALIDAS:
         arquivos.extend(
-            glob.glob(os.path.join(pasta, f"*{extensao}"))
+            glob.glob(os.path.join(pasta, extensao))
         )
 
     return arquivos
 
 
-def selecionar_arquivo_mais_recente(arquivos):
+def selecionar_arquivo_mais_recente(arquivos: list) -> str:
     return max(arquivos, key=os.path.getmtime)
 
 
-def encontrar_arquivos_invalidos(pasta):
-    invalidos = []
+def encontrar_arquivos_invalidos(pasta: str) -> list:
+    arquivos_invalidos = []
 
     for arquivo in glob.glob(os.path.join(pasta, "*")):
         if os.path.isfile(arquivo):
-            extensao = os.path.splitext(arquivo)[1].lower()
+            _, extensao = os.path.splitext(arquivo)
 
-            if extensao not in EXTENSOES_VALIDAS:
-                invalidos.append(arquivo)
+            if extensao.lower() not in EXTENSOES_VALIDAS_SUFIXO:
+                arquivos_invalidos.append(arquivo)
 
-    return invalidos
+    return arquivos_invalidos
 
 
 # ==============================
-# VALIDAÇÃO
+# ETAPA DE VALIDAÇÃO
 # ==============================
 
-def registrar_erro(motivo, caminho_arquivo):
+def registrar_erro(motivo: str, caminho_arquivo: str) -> str:
     os.makedirs(PASTA_ERROS, exist_ok=True)
 
     agora = datetime.now()
     carimbo = agora.strftime("%Y-%m-%d_%H%M%S")
-
     caminho_log = os.path.join(
         PASTA_ERROS,
         f"erro_{carimbo}.txt"
     )
 
-    with open(caminho_log, "w", encoding="utf-8") as log:
-        log.write(
+    with open(caminho_log, "w", encoding="utf-8") as arquivo:
+        arquivo.write(
             f"Data/Hora: {agora.strftime('%d/%m/%Y %H:%M:%S')}\n"
-            f"Arquivo: {caminho_arquivo}\n"
-            f"Motivo: {motivo}\n"
         )
+        arquivo.write(f"Arquivo: {caminho_arquivo}\n")
+        arquivo.write(f"Motivo: {motivo}\n")
 
     return caminho_log
 
 
-def validar_dados(df):
+def validar_dados(df: pd.DataFrame) -> bool:
     return (
         df is not None
         and not df.empty
@@ -81,79 +83,99 @@ def validar_dados(df):
     )
 
 
-def tratar_erro(motivo, caminho_arquivo):
-    print(f"Validação falhou: {motivo}")
+def mover_para_processados(
+    caminho_original: str,
+    sucesso: bool
+) -> str:
 
-    log = registrar_erro(
-        motivo,
-        caminho_arquivo
-    )
-
-    print(f"Erro registrado em: {log}")
-
-    if os.path.isfile(caminho_arquivo):
-        destino = mover_para_processados(
-            caminho_arquivo,
-            sucesso=False
-        )
-
-        print(f"Arquivo movido para: {destino}")
-
-    print("Programa encerrado com segurança.\n")
-
-
-def mover_para_processados(caminho_original, sucesso):
     os.makedirs(PASTA_PROCESSADOS, exist_ok=True)
 
-    nome = os.path.basename(caminho_original)
+    nome_arquivo = os.path.basename(caminho_original)
 
     if not sucesso:
-        nome = f"ERRO_{nome}"
+        nome_arquivo = f"ERRO_{nome_arquivo}"
 
-    destino = os.path.join(
+    caminho_destino = os.path.join(
         PASTA_PROCESSADOS,
-        nome
+        nome_arquivo
     )
 
     shutil.move(
         caminho_original,
-        destino
+        caminho_destino
     )
 
-    return destino
+    return caminho_destino
+
+
+def tratar_erro(
+    motivo: str,
+    caminho_arquivo: str
+):
+    print(f"Validação falhou: {motivo}")
+
+    caminho_log = registrar_erro(
+        motivo,
+        caminho_arquivo
+    )
+
+    print(f"Erro registrado em: {caminho_log}")
+
+    if os.path.isfile(caminho_arquivo):
+        caminho_movido = mover_para_processados(
+            caminho_arquivo,
+            sucesso=False
+        )
+        print(f"Arquivo movido para: {caminho_movido}")
+
+    print("Programa encerrado com segurança.")
 
 
 # ==============================
-# SAÍDA
+# ETAPA DE SAÍDA
 # ==============================
 
-def salvar_dados_tratados(df, caminho_original, tipo_relatorio):
+def salvar_dados_tratados(
+    df: pd.DataFrame,
+    pasta_destino: str
+) -> str:
 
-    pasta_destino = tratamento.DESTINOS_POR_TIPO.get(
-        tipo_relatorio,
-        PASTA_SAIDA
-    )
+    os.makedirs(pasta_destino, exist_ok=True)
 
-    os.makedirs(
-        pasta_destino,
-        exist_ok=True
-    )
+    titulo = df.attrs.get("titulo_relatorio")
 
-    nome_base = os.path.splitext(
-        os.path.basename(caminho_original)
-    )[0]
-
-    nome_saida = f"{nome_base}_tratado.xlsx"
+    if titulo:
+        nome_saida = f"{titulo} - Tratado.xlsx"
+    else:
+        nome_saida = "Relatorio - Tratado.xlsx"
 
     caminho_saida = os.path.join(
         pasta_destino,
         nome_saida
     )
 
-    df.to_excel(
-        caminho_saida,
-        index=False
-    )
+    if titulo:
+        with pd.ExcelWriter(
+            caminho_saida,
+            engine="openpyxl"
+        ) as writer:
+
+            df.to_excel(
+                writer,
+                index=False,
+                startrow=1
+            )
+
+            writer.book.active.cell(
+                row=1,
+                column=1,
+                value=titulo
+            )
+    else:
+        df.to_excel(
+            caminho_saida,
+            index=False
+        )
 
     print("=== SAÍDA DOS DADOS ===")
     print(f"Arquivo criado: {nome_saida}")
@@ -182,7 +204,6 @@ def main():
     )
 
     if arquivos_invalidos:
-
         motivo = (
             "Formato de arquivo não suportado. "
             "Apenas arquivos Excel (.xlsx ou .xls) são aceitos."
@@ -196,26 +217,22 @@ def main():
 
         return
 
-    # Procura arquivos Excel
+    # Procura os arquivos Excel
     arquivos = encontrar_arquivos_excel(
         PASTA_ENTRADA
     )
 
     if not arquivos:
-
         print(
             f"Nenhum arquivo Excel foi encontrado "
             f"na pasta '{PASTA_ENTRADA}'."
         )
-
         print(
             "Coloque um arquivo .xlsx ou .xls "
             "nessa pasta e rode o script novamente."
         )
-
         return
 
-    # Seleciona o mais recente
     caminho_selecionado = selecionar_arquivo_mais_recente(
         arquivos
     )
@@ -224,15 +241,11 @@ def main():
         caminho_selecionado
     )
 
-    print(
-        f"Arquivos Excel encontrados: {len(arquivos)}"
-    )
-
+    print(f"Arquivos Excel encontrados: {len(arquivos)}")
     print(
         f"Arquivo selecionado (mais recente): "
         f"{nome_arquivo}"
     )
-
     print(
         f"Caminho completo: "
         f"{caminho_selecionado}\n"
@@ -240,61 +253,52 @@ def main():
 
     print("=== ETAPA DE VALIDAÇÃO ===")
 
-    # Arquivo existe?
+    # Verifica se o arquivo ainda existe
     if not os.path.isfile(caminho_selecionado):
-
         tratar_erro(
             "O arquivo selecionado não existe mais no disco.",
             caminho_selecionado
         )
-
         return
 
-    # Extensão válida?
-    extensao = os.path.splitext(
+    # Verifica a extensão
+    _, extensao = os.path.splitext(
         caminho_selecionado
-    )[1].lower()
+    )
 
-    if extensao not in EXTENSOES_VALIDAS:
-
+    if extensao.lower() not in EXTENSOES_VALIDAS_SUFIXO:
         tratar_erro(
-            f"Extensão '{extensao}' não é um Excel válido.",
+            f"Extensão '{extensao}' não é um Excel válido "
+            "(.xlsx ou .xls).",
             caminho_selecionado
         )
-
         return
 
-    # Tenta abrir o Excel
+    # Carrega a planilha sem assumir cabeçalho
     try:
-
-        df = pd.read_excel(
+        df_bruto = pd.read_excel(
             caminho_selecionado,
             header=None
         )
 
     except Exception as erro:
-
         tratar_erro(
             f"O Pandas não conseguiu abrir o arquivo. "
             f"Detalhe: {erro}",
             caminho_selecionado
         )
-
         return
 
     print("=== Resumo do arquivo carregado ===")
-    print(f"Linhas: {df.shape[0]}")
-    print(f"Colunas: {df.shape[1]}\n")
+    print(f"Linhas: {df_bruto.shape[0]}")
+    print(f"Colunas: {df_bruto.shape[1]}\n")
 
-    # Dados válidos?
-    if not validar_dados(df):
-
+    if not validar_dados(df_bruto):
         tratar_erro(
             "O DataFrame está vazio ou não possui "
             "linhas/colunas suficientes.",
             caminho_selecionado
         )
-
         return
 
     print(
@@ -306,19 +310,35 @@ def main():
     # TRATAMENTO
     # ==============================
 
-    df, tipo_relatorio = tratamento.processar_relatorio(df)
-
-    # ==============================
-    # SAÍDA
-    # ==============================
-
-    salvar_dados_tratados(
-        df,
-        caminho_selecionado,
-        tipo_relatorio
+    df_tratado, tipo_relatorio = (
+        tratamento.processar_relatorio(
+            df_bruto
+        )
     )
 
-    # Move original após sucesso
+    print(
+        f"Relatório identificado como: "
+        f"{tipo_relatorio}\n"
+    )
+
+    # Define o destino conforme o tipo do relatório
+    pasta_destino = tratamento.DESTINOS_POR_TIPO.get(
+        tipo_relatorio,
+        PASTA_SAIDA
+    )
+
+    salvar_dados_tratados(
+        df_tratado,
+        pasta_destino
+    )
+
+    curva_abc.perguntar_e_gerar_curva_abc(
+    df_tratado,
+    tipo_relatorio,
+    nome_arquivo
+    )
+
+    # Move o arquivo original após o processamento
     caminho_movido = mover_para_processados(
         caminho_selecionado,
         sucesso=True
