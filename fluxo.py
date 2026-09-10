@@ -328,15 +328,20 @@ def main():
     )
 
     salvar_dados_tratados(
-        df_tratado,
-        pasta_destino
-    )
+    df_tratado,
+    pasta_destino
+)
+
+    nome_relatorio = tratamento.NOMES_POR_TIPO.get(
+    tipo_relatorio,
+    "Desconhecido"
+)
 
     curva_abc.perguntar_e_gerar_curva_abc(
     df_tratado,
     tipo_relatorio,
-    nome_arquivo
-    )
+    nome_relatorio
+)
 
     # Move o arquivo original após o processamento
     caminho_movido = mover_para_processados(

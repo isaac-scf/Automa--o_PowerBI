@@ -11,11 +11,6 @@ COLUNAS_VALOR_POR_TIPO = {
     "faturamento_cliente": ["Valor de Mercadoria", "Total de Mercadoria"],
 }
 
-COLUNAS_IDENTIFICACAO_POR_TIPO = {
-    "faturamento_produto": "Descrição do Produto (completa)",
-    "faturamento_cliente": "Cliente (Nome Fantasia)",
-}
-
 PASTA_CURVAS = "curvas"
 
 
@@ -25,8 +20,7 @@ PASTA_CURVAS = "curvas"
 
 def calcular_curva_abc(
     df: pd.DataFrame,
-    coluna_valor: str,
-    coluna_identificacao: str | None = None
+    coluna_valor: str
 ) -> pd.DataFrame:
 
     if coluna_valor not in df.columns:
@@ -70,17 +64,6 @@ def calcular_curva_abc(
         df["% Acumulado"].apply(classificar)
     )
 
-    if coluna_identificacao in df.columns:
-        df = df[
-            [
-                coluna_identificacao,
-                coluna_valor,
-                "% do Total",
-                "% Acumulado",
-                "Classificação ABC",
-            ]
-        ]
-
     return df
 
 
@@ -91,7 +74,7 @@ def calcular_curva_abc(
 def gerar_curva_abc(
     df_tratado: pd.DataFrame,
     tipo_relatorio: str,
-    nome_arquivo: str
+    nome_relatorio: str
 ) -> None:
 
     coluna_valor = next(
@@ -107,15 +90,10 @@ def gerar_curva_abc(
         print("Coluna de valor não encontrada. Curva ABC não gerada.")
         return
 
-    coluna_identificacao = COLUNAS_IDENTIFICACAO_POR_TIPO.get(
-        tipo_relatorio
-    )
-
     try:
         df_curva = calcular_curva_abc(
             df_tratado,
-            coluna_valor,
-            coluna_identificacao
+            coluna_valor
         )
 
     except ValueError as erro:
@@ -124,8 +102,7 @@ def gerar_curva_abc(
 
     os.makedirs(PASTA_CURVAS, exist_ok=True)
 
-    nome_base, _ = os.path.splitext(nome_arquivo)
-    nome_curva = f"curvaABC_{nome_base}.xlsx"
+    nome_curva = f"CurvaAbc{nome_relatorio}.xlsx"
 
     caminho_saida = os.path.join(
         PASTA_CURVAS,
@@ -147,7 +124,7 @@ def gerar_curva_abc(
 def perguntar_e_gerar_curva_abc(
     df_tratado: pd.DataFrame,
     tipo_relatorio: str,
-    nome_arquivo: str
+    nome_relatorio: str
 ) -> None:
 
     if tipo_relatorio not in COLUNAS_VALOR_POR_TIPO:
@@ -163,5 +140,5 @@ def perguntar_e_gerar_curva_abc(
     gerar_curva_abc(
         df_tratado,
         tipo_relatorio,
-        nome_arquivo
+        nome_relatorio
     )

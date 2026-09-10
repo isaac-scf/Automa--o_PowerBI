@@ -2,6 +2,7 @@ entrada/
 dados tratados/
 processados/
 saida_erros/
+curvas/
 venv/
 __pycache__/
 *.pyc
