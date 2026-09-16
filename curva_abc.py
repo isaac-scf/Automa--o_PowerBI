@@ -9,6 +9,7 @@ import pandas as pd
 COLUNAS_VALOR_POR_TIPO = {
     "faturamento_produto": ["Total de Mercadoria"],
     "faturamento_cliente": ["Valor de Mercadoria", "Total de Mercadoria"],
+    "faturamento_periodo": ["Total de Mercadoria"]
 }
 
 PASTA_CURVAS = "curvas"
